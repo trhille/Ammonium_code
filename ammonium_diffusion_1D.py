@@ -20,8 +20,9 @@ dt = 0.1 #time step. If 1/2≤theta≤1, timestep can be basically anything (pos
 s_per_yr = 3600*24*365.25 #seconds per year
 #model parameters
 D = np.linspace(9.8e-6, 5e-5, N)/100**2*s_per_yr #diffusivity from Krom and Berner (1980) in Limnology and Oceanography. Units are m^2 s^-1 (constant here, but doesn't have to be)
-u_seawater = 1e-4 # 1 mM concentration, also from Krom and Berner (1980)
+u_seawater = 1e-3 # 1 mM concentration, also from Krom and Berner (1980)
 theta = 1/2 #Can be 0 (explicit) to 1(implicit), 0.5 is most accurate (Crank-Nicolson time-stepping). If theta<1/2, use dt < dx^2/(4D)
+
 #initial conditions (Here, I just made up layer concentrations).
 layers = 6 #number of stratigraphic layers (duh)
 layer_thickness = np.floor(N/layers) #layer thickness. If there is a remainder, it's added onto the lowest layer
@@ -59,7 +60,7 @@ f[0,:] = u_seawater*(1-np.sin(dt/4*np.linspace(0, end_time, end_time/dt)))
 u_x0 = u_seawater #upper boundary is constant at ammonium concentration of seawater
 u_xN = u_t0[-1] #Constant initial concentration at the bottom (can easily change this later)
    
-#create finite difference matrix
+#create 2nd-order finite difference matrix for concentration calculations
 A_fd_diag = 2*np.ones(N)
 A_fd_diag_1 = -np.ones(N-1)
 A_fd_diag_minus1 = -np.ones(N-1)
@@ -72,18 +73,35 @@ A_fd[-1, -1] = 1
 u_xt = np.zeros((N,int(end_time/dt))) #create solution array. The for-loop below will populate
 u_xt[:,0] = u_t0 #initial condition in first column
 
+#create first order centered difference matrix to calculate diffusive flux from concentrations
+J_xt = np.zeros((N,int(end_time/dt))) #create diffusive flux array.
+A_J_diag_1 = A_fd_diag_1 = np.ones(N-1)
+A_J_diag_minus1 = -np.ones(N-1)
+A_J = 1/(2*dx)*(np.diag(A_J_diag_1, 1) + np.diag(A_J_diag_minus1, -1))
+A_J[0, 0:2] = np.array([-1, 1])/dx
+A_J[-1, -2] = -1/dx
+A_J[-1, -1] = 1/dx
+
 #poopulate the solution array. Each column is a time step.
 for tt in range(1, int(end_time/dt)):
     u_xt[:,tt] = np.linalg.solve((np.identity(N) + theta*dt*D*A_fd), np.matmul((np.identity(N)-dt*(1-theta)*D*A_fd), u_xt[:,tt-1]) + dt*(theta*f[:, tt] + (1-theta)*f[:,tt-1])) #solve Ax=b
     u_xt[0,tt] = u_x0 #ensure boundaries don't change 
     u_xt[-1,tt] = u_xN
+    J_xt[:,tt] = -D*np.matmul(A_J, u_xt[:,tt])
 
-#plot up initial profile
-plt.plot(u_xt[:,0], -x)
+#plot up initial (blue) and final (orange) profile
+fig1 = plt.figure()
+ax1 = fig1.add_subplot(111)
+ax1.plot(u_xt[:,0], -x)
+ax1.plot(u_xt[:,-1], -x)
 plt.ylabel('depth (m)')
 plt.xlabel('[NH4]')
 
-#check out that final profile
-plt.plot(u_xt[:,-1], -x)
+
+#now plot diffusive flux, J_xt
+fig2 = plt.figure()
+ax2 = fig2.add_subplot(111)
+ax2.plot(J_xt[:,0], -x)
+ax2.plot(J_xt[:,-1], -x)
 plt.ylabel('depth (m)')
-plt.xlabel('[NH4]')
+plt.xlabel('Diffusive Flux (mol/m^2/yr) ')
